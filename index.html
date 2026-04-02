@@ -1,0 +1,591 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Noise Pollution Mapper</title>
+
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:wght@300;400;600&display=swap" rel="stylesheet"/>
+
+  <style>
+    :root {
+      --bg: #0d1117; --surface: #161b22; --surface2: #1e2530;
+      --accent: #39d353; --accent2: #58a6ff; --warn: #f0c040;
+      --danger: #ff6b6b; --text: #e6edf3; --muted: #7d8590;
+      --border: #30363d; --radius: 12px;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--text); font-family: 'DM Sans', sans-serif; min-height: 100vh; }
+
+    #setup-banner {
+      background: #1a1500; border-bottom: 2px solid var(--warn);
+      padding: 11px 22px; display: flex; align-items: center; gap: 10px;
+      font-size: 0.8rem; flex-wrap: wrap;
+    }
+    #setup-banner b { color: var(--warn); font-family: 'Space Mono', monospace; }
+    #setup-banner a { color: var(--accent2); }
+    #setup-banner.hidden { display: none; }
+
+    header {
+      background: var(--surface); border-bottom: 1px solid var(--border);
+      padding: 13px 20px; display: flex; align-items: center; gap: 11px;
+    }
+    .logo-icon { width: 35px; height: 35px; background: var(--accent); border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 16px; flex-shrink: 0; }
+    header h1 { font-family: 'Space Mono', monospace; font-size: 0.95rem; letter-spacing: 1px; }
+
+    .sync-pill {
+      display: inline-flex; align-items: center; gap: 5px;
+      font-size: 0.67rem; font-family: 'Space Mono', monospace;
+      padding: 3px 9px; border-radius: 20px; border: 1px solid var(--border); color: var(--muted);
+    }
+    .sync-pill.ok   { color: var(--accent); border-color: var(--accent); background: #1a2a1a; }
+    .sync-pill.err  { color: var(--danger); border-color: var(--danger); background: #2a1a1a; }
+    .sdot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+    .sdot.pulse { animation: blink 1.2s infinite; }
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.2} }
+
+    #rec-status {
+      margin-left: auto; font-size: 0.68rem; font-family: 'Space Mono', monospace;
+      padding: 3px 9px; border-radius: 20px; border: 1px solid var(--accent);
+      background: #1a2a1a; color: var(--accent); white-space: nowrap;
+    }
+
+    .container { display: grid; grid-template-columns: 310px 1fr; height: calc(100vh - 62px); }
+
+    .sidebar {
+      background: var(--surface); border-right: 1px solid var(--border);
+      padding: 16px 14px; overflow-y: auto; display: flex; flex-direction: column; gap: 14px;
+    }
+    .card { background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius); padding: 13px; }
+    .card-title { font-family: 'Space Mono', monospace; font-size: 0.62rem; letter-spacing: 2px; color: var(--muted); text-transform: uppercase; margin-bottom: 11px; }
+
+    .db-display { text-align: center; padding: 4px 0; }
+    .db-number { font-family: 'Space Mono', monospace; font-size: 3rem; font-weight: 700; line-height: 1; transition: color 0.3s; }
+    .db-unit { font-size: 0.78rem; color: var(--muted); margin-top: 3px; }
+    .db-bar-wrap { background: #0d1117; border-radius: 8px; height: 8px; overflow: hidden; margin: 9px 0 4px; }
+    .db-bar { height: 100%; width: 0%; border-radius: 8px; background: linear-gradient(90deg, var(--accent), var(--warn), var(--danger)); transition: width 0.12s ease; }
+    .db-labels { display: flex; justify-content: space-between; font-size: 0.6rem; color: var(--muted); font-family: 'Space Mono', monospace; }
+    .zone-badge { display: inline-block; margin-top: 8px; padding: 3px 12px; border-radius: 20px; font-size: 0.76rem; font-weight: 600; background: #1a2a1a; color: var(--accent); border: 1px solid var(--accent); }
+
+    .loc-row { display: flex; align-items: center; gap: 8px; }
+    .loc-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); flex-shrink: 0; }
+    .loc-dot.active { background: var(--accent); animation: blink 1.4s infinite; }
+    .loc-text { color: var(--muted); font-family: 'Space Mono', monospace; font-size: 0.68rem; word-break: break-all; }
+
+    .btn { width: 100%; padding: 10px; border: none; border-radius: 8px; font-family: 'DM Sans', sans-serif; font-size: 0.86rem; font-weight: 600; cursor: pointer; transition: opacity 0.2s, transform 0.1s; }
+    .btn:active { transform: scale(0.97); }
+    .btn:disabled { opacity: 0.35; cursor: not-allowed; }
+    .btn-start   { background: var(--accent); color: #0d1117; }
+    .btn-stop    { background: var(--danger);  color: #fff; }
+    .btn-snap    { background: var(--accent2); color: #fff; }
+    .btn-heatmap { background: linear-gradient(135deg,#1a3a2a,#1a2a3a); color: var(--text); border: 1px solid var(--accent2); }
+    .btn-csv     { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
+
+    .loc-input {
+      width: 100%; padding: 9px 11px; background: var(--bg);
+      border: 1px solid var(--border); border-radius: 8px;
+      color: var(--text); font-family: 'DM Sans', sans-serif; font-size: 0.85rem;
+      outline: none; transition: border-color 0.2s;
+    }
+    .loc-input:focus { border-color: var(--accent2); }
+    .loc-input::placeholder { color: var(--muted); }
+
+    .readings-list { max-height: 150px; overflow-y: auto; display: flex; flex-direction: column; gap: 5px; }
+    .reading-item { display: flex; justify-content: space-between; align-items: center; background: var(--bg); padding: 6px 9px; border-radius: 7px; font-size: 0.74rem; }
+    .reading-db { font-family: 'Space Mono', monospace; font-weight: 700; }
+    .reading-loc { color: var(--muted); font-size: 0.65rem; }
+    .empty-msg { color: var(--muted); font-size: 0.78rem; text-align: center; padding: 12px 0; line-height: 1.6; }
+
+    #map { width: 100%; height: 100%; background: #0d1117; }
+    .status-bar { position: absolute; bottom: 14px; right: 14px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 6px 12px; font-family: 'Space Mono', monospace; font-size: 0.66rem; color: var(--muted); z-index: 1000; max-width: 320px; }
+
+    ::-webkit-scrollbar { width: 4px; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+    .rec-dot { display: inline-block; width: 7px; height: 7px; background: var(--danger); border-radius: 50%; margin-right: 4px; animation: blink 0.8s infinite; vertical-align: middle; }
+
+    @media (max-width: 680px) {
+      .container { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
+      .sidebar { max-height: 55vh; }
+      #map { min-height: 45vh; }
+    }
+
+    /* ── Landing Page Styles ── */
+    #landing-page {
+      position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+      background: #05080e; z-index: 99999;
+      display: flex; align-items: center; justify-content: center;
+      overflow: hidden; text-align: center; font-family: 'DM Sans', sans-serif;
+      transition: opacity 0.6s ease-out, visibility 0.6s ease-out;
+    }
+    #landing-page.fade-out { opacity: 0; visibility: hidden; }
+
+    .landing-bg { position: absolute; top:0; left:0; width:100%; height:100%; overflow: hidden; z-index: 1; }
+    .orb { position: absolute; border-radius: 50%; filter: blur(60px); opacity: 0.5; animation: float 10s infinite ease-in-out alternate; will-change: transform; }
+    .orb1 { width: 350px; height: 350px; background: var(--accent); top: -50px; left: -50px; animation-delay: 0s; }
+    .orb2 { width: 450px; height: 450px; background: var(--accent2); bottom: -100px; right: -50px; animation-delay: -2s; }
+    .orb3 { width: 250px; height: 250px; background: var(--danger); top: 30%; left: 50%; animation-delay: -4s; opacity: 0.3; filter: blur(80px); }
+
+    @keyframes float { 
+      0% { transform: translateY(0) scale(1); }
+      100% { transform: translateY(30px) scale(1.05); }
+    }
+
+    .landing-content {
+      position: relative; z-index: 2;
+      background: rgba(22, 27, 34, 0.4);
+      backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 24px; padding: 60px 40px;
+      max-width: 600px; width: 90%;
+      box-shadow: 0 30px 60px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.1);
+      animation: slideUpFade 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    }
+
+    @keyframes slideUpFade {
+      0% { opacity: 0; transform: translateY(40px); }
+      100% { opacity: 1; transform: translateY(0); }
+    }
+
+    .landing-icon-wrap { position: relative; width: 80px; height: 80px; margin: 0 auto 24px; display: flex; justify-content: center; align-items: center; }
+    .pulse-ring {
+      position: absolute; width: 100%; height: 100%; border-radius: 50%;
+      border: 2px solid var(--accent); animation: pulseRing 2.5s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
+    }
+    @keyframes pulseRing {
+      0% { transform: scale(0.8); opacity: 1; border-width: 4px; }
+      100% { transform: scale(1.6); opacity: 0; border-width: 0px; }
+    }
+    .landing-icon {
+      position: relative; z-index: 2; width: 64px; height: 64px; background: var(--accent);
+      border-radius: 20px; display: flex; align-items: center; justify-content: center;
+      font-size: 32px; box-shadow: 0 0 30px rgba(57, 211, 83, 0.4);
+    }
+
+    .landing-title { font-family: 'Space Mono', monospace; font-size: 2.5rem; font-weight: 700; color: #fff; margin-bottom: 16px; letter-spacing: 2px; line-height: 1.1; }
+    .landing-desc { font-size: 1.1rem; color: #a3b3c4; line-height: 1.6; margin-bottom: 36px; font-weight: 400; }
+
+    .features { display: flex; justify-content: center; gap: 16px; margin-bottom: 40px; flex-wrap: wrap; }
+    .feature {
+      background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06);
+      padding: 10px 16px; border-radius: 12px; font-size: 0.85rem; color: #c9d1d9;
+      display: flex; align-items: center; gap: 8px; font-weight: 600;
+    }
+
+    .enter-btn {
+      background: linear-gradient(135deg, var(--accent), #2ea043);
+      color: #05080e; border: none; padding: 16px 36px; border-radius: 50px;
+      font-size: 1.1rem; font-weight: 700; font-family: 'DM Sans', sans-serif;
+      cursor: pointer; display: inline-flex; align-items: center; gap: 12px;
+      transition: all 0.3s ease; box-shadow: 0 10px 20px rgba(57, 211, 83, 0.3);
+    }
+    .enter-btn:hover { transform: translateY(-4px); box-shadow: 0 15px 25px rgba(57, 211, 83, 0.4); }
+    .enter-btn:active { transform: translateY(0); }
+    .enter-btn svg { transition: transform 0.3s; }
+    .enter-btn:hover svg { transform: translateX(5px); }
+
+    @media (max-width: 600px) {
+      .landing-title { font-size: 2rem; }
+      .features { gap: 10px; }
+      .feature { font-size: 0.8rem; padding: 8px 12px; }
+      .landing-content { padding: 40px 24px; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ══════════════════════════════════════════════
+  LANDING PAGE OVERLAY
+  ══════════════════════════════════════════════ -->
+<div id="landing-page">
+  <div class="landing-bg">
+    <div class="orb orb1"></div>
+    <div class="orb orb2"></div>
+    <div class="orb orb3"></div>
+  </div>
+  
+  <div class="landing-content">
+    <div class="landing-icon-wrap">
+      <div class="landing-icon">🌍</div>
+      <div class="pulse-ring"></div>
+    </div>
+    <h1 class="landing-title">NOISE MAPPER</h1>
+    <p class="landing-desc">Empower your community with real-time noise pollution data. Track, analyze, and visualize urban soundscapes with precision.</p>
+    
+    <div class="features">
+      <div class="feature"><span class="f-icon">🎙️</span> Live dB Meter</div>
+      <div class="feature"><span class="f-icon">📍</span> GPS Tagging</div>
+      <div class="feature"><span class="f-icon">🗺️</span> Heatmap Viz</div>
+    </div>
+
+    <button class="enter-btn" onclick="document.getElementById('landing-page').classList.add('fade-out'); setTimeout(() => document.getElementById('landing-page').style.display='none', 600)">
+      <span>Launch Application</span>
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg>
+    </button>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════
+  SETUP BANNER — disappears once Firebase is configured
+  ══════════════════════════════════════════════ -->
+<div id="setup-banner">
+  <span>⚠️</span>
+  <span>
+    <b>ONE-TIME SETUP NEEDED:</b> Open this file in Notepad/VS Code →
+    find the <b>FIREBASE CONFIG</b> section → paste your credentials.
+    &nbsp;<a href="https://console.firebase.google.com/" target="_blank">Create free Firebase project →</a>
+  </span>
+</div>
+
+<header>
+  <div class="logo-icon">🌍</div>
+  <h1>NOISE MAPPER</h1>
+  <div id="sync-pill" class="sync-pill"><div class="sdot"></div><span>NOT CONNECTED</span></div>
+  <span id="rec-status">● IDLE</span>
+</header>
+
+<div class="container">
+  <div class="sidebar">
+
+    <div class="card">
+      <div class="card-title">Live dB Meter</div>
+      <div class="db-display">
+        <div class="db-number" id="db-value">--</div>
+        <div class="db-unit">decibels (dB)</div>
+        <div class="db-bar-wrap"><div class="db-bar" id="db-bar"></div></div>
+        <div class="db-labels"><span>20</span><span>50</span><span>75</span><span>110</span></div>
+        <div class="zone-badge" id="zone-badge">—</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Controls</div>
+      <div style="display:flex;flex-direction:column;gap:7px;">
+        <button class="btn btn-start"   id="btn-start" onclick="startListening()">🎙️ Start Mic + Location</button>
+        <button class="btn btn-stop"    id="btn-stop"  onclick="stopListening()" disabled>⏹ Stop</button>
+        <input  class="loc-input" id="loc-name" placeholder="📝 Enter location name (e.g. Bus Stand)" />
+        <button class="btn btn-snap"    id="btn-snap"  onclick="snapReading()"   disabled>📍 Snap Reading</button>
+        <button class="btn btn-heatmap" onclick="drawHeatmap()">🗺️ Generate Heatmap</button>
+        <button class="btn btn-csv"     onclick="downloadCSV()">⬇️ Download CSV</button>
+
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Current Location</div>
+      <div class="loc-row">
+        <div class="loc-dot" id="loc-dot"></div>
+        <div class="loc-text" id="loc-text">Not acquired yet</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Readings Log (<span id="count">0</span>) ☁️ Live Sync</div>
+      <div class="readings-list" id="readings-list">
+        <div class="empty-msg">Connecting to cloud...</div>
+      </div>
+    </div>
+
+  </div>
+
+  <div style="position:relative;">
+    <div id="map"></div>
+    <div class="status-bar" id="status-bar">Initialising...</div>
+  </div>
+</div>
+
+<!-- Leaflet -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.heat/0.2.0/leaflet-heat.js"></script>
+
+<!-- Firebase -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+
+<script>
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║                  🔥  FIREBASE CONFIG  🔥                        ║
+// ║                                                                  ║
+// ║  Do this ONCE — takes about 5 minutes:                          ║
+// ║                                                                  ║
+// ║  STEP 1 ─ Go to https://console.firebase.google.com             ║
+// ║            Click "Create a project" → name it anything → Next   ║
+// ║            (disable Google Analytics if asked) → Create          ║
+// ║                                                                  ║
+// ║  STEP 2 ─ In left sidebar click "Build" → "Realtime Database"   ║
+// ║            → "Create Database" → pick any region                ║
+// ║            → choose "Start in TEST MODE" → Enable               ║
+// ║                                                                  ║
+// ║  STEP 3 ─ Click the ⚙️ gear icon → "Project settings"          ║
+// ║            → scroll to "Your apps" → click </> (Web icon)       ║
+// ║            → Register app (any nickname) → you'll see a         ║
+// ║            firebaseConfig object. Copy each value below:         ║
+// ╚══════════════════════════════════════════════════════════════════╝
+
+const FIREBASE_CONFIG = {
+  apiKey:            "AIzaSyCskM6cDxIHcH8c3w_1HAkFgcq72tH-JLk",
+  authDomain:        "urban-noise-mapper.firebaseapp.com",
+  databaseURL:       "https://urban-noise-mapper-default-rtdb.firebaseio.com",
+  projectId:         "urban-noise-mapper",
+  storageBucket:     "urban-noise-mapper.firebasestorage.app",
+  messagingSenderId: "586133254245",
+  appId:             "1:586133254245:web:e3d290239749009324d68c"
+};
+
+// ───────────────────────────────────────────────────────────────────
+
+let audioCtx = null, analyser = null, micStream = null, animFrame = null;
+let currentDB = 0, currentLat = null, currentLng = null;
+let readings = [];
+let map, heatLayer, markerLayer;
+let isListening = false;
+let fbRef = null; // Firebase Realtime Database reference
+
+// ── Map setup ───────────────────────────────────────────────────────
+map = L.map('map').setView([20.5937, 78.9629], 5);
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+  attribution: '© OpenStreetMap © CARTO', maxZoom: 19
+}).addTo(map);
+markerLayer = L.layerGroup().addTo(map);
+
+// ── Firebase init ───────────────────────────────────────────────────
+function initFirebase() {
+  const configured = FIREBASE_CONFIG.apiKey !== "PASTE_YOUR_apiKey_HERE";
+
+  if (!configured) {
+    setSyncPill('err', 'NOT CONFIGURED');
+    setStatus("⚠️ Open this file in a text editor and fill in the FIREBASE CONFIG section.");
+    document.getElementById('readings-list').innerHTML =
+      '<div class="empty-msg">Firebase not set up yet.<br/>Points won\'t be saved across sessions.<br/>Follow the 3-step guide in the file.</div>';
+    return;
+  }
+
+  try {
+    firebase.initializeApp(FIREBASE_CONFIG);
+    fbRef = firebase.database().ref('noise_readings');
+    document.getElementById('setup-banner').classList.add('hidden');
+    setSyncPill('ok', 'CONNECTED ☁️');
+    setStatus("✅ Cloud connected! Loading saved readings...");
+    startCloudSync();
+  } catch (e) {
+    setSyncPill('err', 'CONFIG ERROR');
+    setStatus("❌ Firebase error — check your config values. " + e.message);
+  }
+}
+
+// ── Real-time listener — updates ALL devices instantly ──────────────
+function startCloudSync() {
+  fbRef.on('value', snapshot => {
+    readings = [];
+    markerLayer.clearLayers();
+
+    const data = snapshot.val();
+    if (data) {
+      Object.values(data).forEach(entry => {
+        readings.push(entry);
+        placeMarker(entry);
+      });
+    }
+    updateLog();
+    setStatus(readings.length > 0
+      ? `☁️ ${readings.length} reading(s) loaded from cloud — live synced!`
+      : "Cloud connected. No readings yet — start the mic and snap some!");
+  }, err => {
+    setSyncPill('err', 'SYNC ERROR');
+    setStatus("❌ Sync error: " + err.message);
+  });
+}
+
+// ── Mic + GPS ───────────────────────────────────────────────────────
+async function startListening() {
+  setStatus("Asking for permissions...");
+  try {
+    micStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+  } catch {
+    setStatus("❌ Microphone denied. Please allow it in browser settings.");
+    return;
+  }
+
+  if (!navigator.geolocation) { setStatus("❌ GPS not supported in this browser."); return; }
+
+  navigator.geolocation.watchPosition(
+    pos => {
+      currentLat = pos.coords.latitude.toFixed(6);
+      currentLng = pos.coords.longitude.toFixed(6);
+      document.getElementById('loc-text').textContent = `${currentLat}, ${currentLng}`;
+      document.getElementById('loc-dot').classList.add('active');
+      map.setView([currentLat, currentLng], 15);
+    },
+    err => setStatus("⚠️ GPS error: " + err.message),
+    { enableHighAccuracy: true, maximumAge: 2000 }
+  );
+
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  analyser = audioCtx.createAnalyser();
+  analyser.fftSize = 2048;
+  analyser.smoothingTimeConstant = 0.4;
+  audioCtx.createMediaStreamSource(micStream).connect(analyser);
+
+  isListening = true;
+  document.getElementById('btn-start').disabled = true;
+  document.getElementById('btn-stop').disabled  = false;
+  document.getElementById('btn-snap').disabled  = false;
+  document.getElementById('rec-status').innerHTML = '<span class="rec-dot"></span>RECORDING';
+  setStatus("🎙️ Mic active! Walk to different spots and tap Snap Reading.");
+  loopMeter();
+}
+
+// ── dB meter loop (time-domain RMS — accurate) ──────────────────────
+function loopMeter() {
+  if (!isListening) return;
+
+  const buf = new Uint8Array(analyser.fftSize);
+  analyser.getByteTimeDomainData(buf);
+
+  // Each sample is 0-255, centred at 128 (flat line = silence)
+  let sumSq = 0;
+  for (let i = 0; i < buf.length; i++) {
+    const n = (buf[i] - 128) / 128;
+    sumSq += n * n;
+  }
+  const rms = Math.sqrt(sumSq / buf.length);
+
+  // Convert RMS → realistic dB range
+  // Near-silence rms ~0.001 → ~30 dB  |  Loud voice rms ~0.5 → ~80 dB
+  let db = rms > 0.0001 ? (20 * Math.log10(rms) + 90) : 25;
+  currentDB = Math.max(20, Math.min(110, Math.round(db)));
+
+  const el = document.getElementById('db-value');
+  el.textContent = currentDB;
+  el.style.color = dbColor(currentDB);
+  document.getElementById('db-bar').style.width = ((currentDB - 20) / 90 * 100) + '%';
+  const badge = document.getElementById('zone-badge');
+  badge.textContent = dbZone(currentDB);
+  badge.style.color = badge.style.borderColor = dbColor(currentDB);
+
+  animFrame = requestAnimationFrame(loopMeter);
+}
+
+// ── Stop ────────────────────────────────────────────────────────────
+function stopListening() {
+  isListening = false;
+  cancelAnimationFrame(animFrame);
+  micStream?.getTracks().forEach(t => t.stop());
+  audioCtx?.close();
+  document.getElementById('btn-start').disabled = false;
+  document.getElementById('btn-stop').disabled  = true;
+  document.getElementById('btn-snap').disabled  = true;
+  document.getElementById('rec-status').textContent = '● IDLE';
+  document.getElementById('db-value').textContent   = '--';
+  document.getElementById('db-bar').style.width      = '0%';
+  setStatus("Stopped. All saved readings are safe in the cloud ☁️");
+}
+
+// ── Snap reading → push to Firebase ─────────────────────────────────
+function snapReading() {
+  if (!currentLat || !currentLng) {
+    setStatus("⚠️ GPS not ready yet — wait a moment after clicking Start."); return;
+  }
+  const locName = document.getElementById('loc-name').value.trim() || 'Unknown Location';
+  const entry = {
+    lat:      parseFloat(currentLat),
+    lng:      parseFloat(currentLng),
+    db:       currentDB,
+    zone:     dbZone(currentDB),
+    time:     new Date().toLocaleTimeString(),
+    date:     new Date().toLocaleDateString(),
+    locName:  locName
+  };
+
+  if (fbRef) {
+    fbRef.push(entry).then(() => {
+      document.getElementById('loc-name').value = '';
+    }).catch(err => setStatus("❌ Save failed: " + err.message));
+  } else {
+    readings.push(entry);
+    placeMarker(entry);
+    updateLog();
+    document.getElementById('loc-name').value = '';
+    setStatus(`📍 Saved locally — ${entry.db} dB (no cloud sync)`);
+  }
+}
+
+// ── Readings log UI ─────────────────────────────────────────────────
+function updateLog() {
+  document.getElementById('count').textContent = readings.length;
+  const list = document.getElementById('readings-list');
+  if (!readings.length) {
+    list.innerHTML = '<div class="empty-msg">No readings yet.<br/>Tap "Snap Reading" to save a point!</div>';
+    return;
+  }
+  list.innerHTML = readings.slice().reverse().map(r => `
+    <div class="reading-item">
+      <div>
+        <div class="reading-db" style="color:${dbColor(r.db)}">${r.db} dB</div>
+        <div class="reading-loc">${r.locName || 'Unknown'} · ${r.lat}, ${r.lng}</div>
+      </div>
+      <div style="font-size:0.71rem;text-align:right;color:${dbColor(r.db)}">
+        ${r.zone}<br/><span style="color:var(--muted)">${r.time}</span>
+      </div>
+    </div>`).join('');
+}
+
+// ── Place a marker on map ────────────────────────────────────────────
+function placeMarker(entry) {
+  L.circleMarker([entry.lat, entry.lng], {
+    radius: 8, fillColor: dbColor(entry.db), color: '#fff',
+    weight: 1.5, opacity: 1, fillOpacity: 0.85
+  }).addTo(markerLayer)
+    .bindPopup(`<b style="color:${dbColor(entry.db)}">${entry.db} dB</b><br/>
+      <b>${entry.locName || 'Unknown Location'}</b><br/>
+      Zone: ${entry.zone}<br/>${entry.date} ${entry.time}<br/>
+      📍 ${entry.lat}, ${entry.lng}`);
+}
+
+// ── Heatmap ──────────────────────────────────────────────────────────
+function drawHeatmap() {
+  if (!readings.length) { setStatus("⚠️ No readings yet. Snap some first!"); return; }
+  if (heatLayer) map.removeLayer(heatLayer);
+  heatLayer = L.heatLayer(
+    readings.map(r => [r.lat, r.lng, r.db / 110]),
+    { radius: 35, blur: 25, maxZoom: 17,
+      gradient: { 0.0:'#39d353', 0.45:'#f0c040', 0.75:'#ff8c42', 1.0:'#ff6b6b' } }
+  ).addTo(map);
+  map.fitBounds(L.latLngBounds(readings.map(r => [r.lat, r.lng])), { padding: [40,40] });
+  setStatus(`🗺️ Heatmap drawn from ${readings.length} cloud readings!`);
+}
+
+
+// ── Download CSV ─────────────────────────────────────────────────────
+function downloadCSV() {
+  if (!readings.length) { setStatus("⚠️ No readings to export."); return; }
+  const csv = "Location_Name,Latitude,Longitude,dB_Level,Zone,Time,Date\n"
+    + readings.map(r => `${r.locName||'Unknown'},${r.lat},${r.lng},${r.db},${r.zone},${r.time},${r.date||''}`).join('\n');
+  const a = Object.assign(document.createElement('a'), {
+    href: URL.createObjectURL(new Blob([csv], {type:'text/csv'})),
+    download: `noise_data_${new Date().toLocaleDateString().replace(/\//g,'-')}.csv`
+  });
+  a.click();
+  setStatus(`✅ CSV downloaded! (${readings.length} readings)`);
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────
+function dbColor(db) {
+  return db < 50 ? '#39d353' : db < 70 ? '#f0c040' : db < 85 ? '#ff8c42' : '#ff6b6b';
+}
+function dbZone(db) {
+  return db < 50 ? 'Quiet 🟢' : db < 70 ? 'Moderate 🟡' : db < 85 ? 'Loud 🟠' : 'Very Loud 🔴';
+}
+function setStatus(msg) { document.getElementById('status-bar').textContent = msg; }
+function setSyncPill(type, label) {
+  const p = document.getElementById('sync-pill');
+  p.className = 'sync-pill ' + (type === 'ok' ? 'ok' : 'err');
+  p.querySelector('.sdot').className = 'sdot' + (type === 'ok' ? ' pulse' : '');
+  p.querySelector('span').textContent = label;
+}
+
+// Boot
+initFirebase();
+</script>
+</body>
+</html>
